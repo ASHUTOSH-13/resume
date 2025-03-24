@@ -61,6 +61,9 @@ function App() {
   const [file, setFile] = useState(null)
   const [status, setStatus] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [parsedData, setParsedData] = useState(null)
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
   const fileInputRef = useRef(null)
 
   const allowedTypes = [
@@ -77,7 +80,6 @@ function App() {
       return false
     }
     
-    // Optional: Add file size validation (e.g., max 10MB)
     const maxSize = 10 * 1024 * 1024; // 10MB in bytes
     if (file.size > maxSize) {
       setStatus('Error: File size should be less than 10MB')
@@ -92,8 +94,12 @@ function App() {
     if (selectedFile && validateFile(selectedFile)) {
       setFile(selectedFile)
       setStatus('')
+      setParsedData(null)
+      setError(null)
     } else if (selectedFile) {
       setFile(null)
+      setParsedData(null)
+      setError(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
@@ -118,38 +124,56 @@ function App() {
     if (droppedFile && validateFile(droppedFile)) {
       setFile(droppedFile)
       setStatus('')
+      setParsedData(null)
+      setError(null)
     }
   }
 
-  const handleUpload = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault()
     if (!file) {
-      setStatus('Please select a file first')
+      setError('Please select a file')
       return
     }
+
+    setLoading(true)
+    setError(null)
 
     const formData = new FormData()
     formData.append('file', file)
 
     try {
+      setStatus('Parsing resume...')
       const response = await fetch('http://localhost:5000/upload', {
         method: 'POST',
         body: formData,
       })
 
-      const data = await response.json()
-      
-      if (response.ok) {
-        setStatus('File uploaded successfully!')
-        setFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-      } else {
-        setStatus(`Upload failed: ${data.error}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to parse resume')
       }
-    } catch (error) {
+
+      const data = await response.json()
+      console.log('Parsed Data:', data) // Debug log
+      
+      if (!data || !data.data) {
+        throw new Error('Invalid response format')
+      }
+
+      setStatus('Resume parsed successfully!')
+      setParsedData(data.data)
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (err) {
+      console.error('Error:', err) // Debug log
+      setError(err.message)
       setStatus('Upload failed: Server error')
-      console.error('Upload error:', error)
+      setParsedData(null)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -175,7 +199,7 @@ function App() {
 
   return (
     <div className="container">
-      <h1 className="title">File Upload</h1>
+      <h1 className="title">Resume Parser</h1>
       <div className="upload-container">
         <div 
           className={`drop-zone ${isDragging ? 'dragging' : ''}`}
@@ -192,7 +216,7 @@ function App() {
           />
           <div className="drop-zone-text">
             <UploadIcon />
-            <p>{file ? file.name : 'Drag & Drop your PDF or DOC file here or click to browse'}</p>
+            <p>{file ? file.name : 'Drag & Drop your resume here or click to browse'}</p>
             <span className="file-types">Allowed types: PDF, DOC, DOCX (Max: 10MB)</span>
           </div>
         </div>
@@ -208,15 +232,197 @@ function App() {
 
         <button 
           className="upload-button"
-          onClick={handleUpload}
-          disabled={!file}
+          onClick={handleSubmit}
+          disabled={!file || loading}
         >
-          {file ? 'Upload File' : 'Select a File'}
+          {loading ? 'Parsing...' : 'Parse Resume'}
         </button>
 
         {status && (
           <div className={`status ${status.includes('success') ? 'success' : 'error'}`}>
             {status}
+          </div>
+        )}
+
+        {error && (
+          <div className="error-message">
+            Error: {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="loading">
+            Processing your resume...
+          </div>
+        )}
+
+        {parsedData && (
+          <div className="parsed-data">
+            {/* Card 1: Personal Information */}
+            <div className="card personal-info">
+              <h2>Personal Information</h2>
+              <div className="personal-details">
+                {parsedData.name && (
+                  <div className="detail-item">
+                    <i className="fas fa-user"></i>
+                    <span className="detail-label">Name:</span>
+                    <span className="detail-value">{parsedData.name}</span>
+                  </div>
+                )}
+                {parsedData.contact?.email && (
+                  <div className="detail-item">
+                    <i className="fas fa-envelope"></i>
+                    <span className="detail-label">Email:</span>
+                    <span className="detail-value">{parsedData.contact.email}</span>
+                  </div>
+                )}
+                {parsedData.contact?.phone && (
+                  <div className="detail-item">
+                    <i className="fas fa-phone"></i>
+                    <span className="detail-label">Phone:</span>
+                    <span className="detail-value">{parsedData.contact.phone}</span>
+                  </div>
+                )}
+                {parsedData.contact?.location && (
+                  <div className="detail-item">
+                    <i className="fas fa-map-marker-alt"></i>
+                    <span className="detail-label">Location:</span>
+                    <span className="detail-value">{parsedData.contact.location}</span>
+                  </div>
+                )}
+                {parsedData.contact?.linkedin && (
+                  <div className="detail-item">
+                    <i className="fab fa-linkedin"></i>
+                    <span className="detail-label">LinkedIn:</span>
+                    <a href={parsedData.contact.linkedin} target="_blank" rel="noopener noreferrer" className="detail-value">
+                      {parsedData.contact.linkedin}
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Education */}
+            {parsedData.education && parsedData.education.length > 0 && (
+              <div className="card education">
+                <h2>Education</h2>
+                <div className="education-timeline">
+                  {parsedData.education.map((edu, index) => (
+                    <div key={index} className="education-item">
+                      {edu.year && <div className="education-year">{edu.year}</div>}
+                      <div className="education-content">
+                        {edu.degree && <h3 className="education-degree">{edu.degree}</h3>}
+                        <div className="education-details">
+                          {edu.institution && <p className="institution">{edu.institution}</p>}
+                          {edu.grade && <p className="grade">Grade: {edu.grade}</p>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Card 3: Skills */}
+            {parsedData.skills && Object.keys(parsedData.skills).length > 0 && (
+              <div className="card skills">
+                <h2>Technical Skills</h2>
+                <div className="skills-grid">
+                  {Object.entries(parsedData.skills).map(([category, skills]) => (
+                    skills && skills.length > 0 && (
+                      <div key={category} className="skill-category">
+                        <h3>{category}</h3>
+                        <div className="skill-tags">
+                          {skills.map((skill, index) => (
+                            <span key={index} className="skill-tag">{skill}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Card 4: Experience */}
+            {parsedData.experience && parsedData.experience.length > 0 && (
+              <div className="card experience">
+                <h2>Work Experience</h2>
+                <div className="experience-timeline">
+                  {parsedData.experience.map((exp, index) => (
+                    <div key={index} className="experience-item">
+                      <div className="experience-header">
+                        {exp.role && <h3 className="experience-role">{exp.role}</h3>}
+                        {exp.company && <div className="experience-company">{exp.company}</div>}
+                        {exp.dates && <div className="experience-duration">{exp.dates}</div>}
+                      </div>
+                      {exp.details && <div className="experience-description">{exp.details}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Card 5: Projects */}
+            {parsedData.projects && parsedData.projects.length > 0 && (
+              <div className="card projects">
+                <h2>Projects</h2>
+                <div className="projects-grid">
+                  {parsedData.projects.map((project, index) => (
+                    <div key={index} className="project-card">
+                      {project.title && <h3 className="project-title">{project.title}</h3>}
+                      {project.description && <p className="project-description">{project.description}</p>}
+                      {project.technologies && (
+                        <div className="project-tech">
+                          <h4>Technologies Used:</h4>
+                          <div className="tech-tags">
+                            {project.technologies.split(',').map((tech, i) => (
+                              <span key={i} className="tech-tag">{tech.trim()}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Card 6: Programming Profiles */}
+            {parsedData.competitive_programming && Object.keys(parsedData.competitive_programming.profiles).length > 0 && (
+              <div className="card programming-profiles">
+                <h2>Programming Profiles</h2>
+                <div className="profiles-grid">
+                  {Object.entries(parsedData.competitive_programming.profiles).map(([platform, data]) => (
+                    <div key={platform} className="profile-card">
+                      <div className="platform-icon">
+                        <i className={`fab fa-${platform.toLowerCase()}`}></i>
+                      </div>
+                      <div className="platform-details">
+                        <h3 className="platform-name">{platform}</h3>
+                        <p className="username">{data.username}</p>
+                        {data.rating && <p className="rating">Rating: {data.rating}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Card 7: Achievements */}
+            {parsedData.achievements && parsedData.achievements.length > 0 && (
+              <div className="card achievements">
+                <h2>Achievements</h2>
+                <div className="achievements-list">
+                  {parsedData.achievements.map((achievement, index) => (
+                    <div key={index} className="achievement-item">
+                      <i className="fas fa-trophy"></i>
+                      <span>{achievement}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
